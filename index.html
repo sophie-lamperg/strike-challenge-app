@@ -17,8 +17,17 @@
       --fire-soft:#3a241d; --grape-soft:#2a2440; --emerald-soft:#123a2c; --amber-soft:#3a2f16; }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--font);
-    -webkit-font-smoothing:antialiased; padding:16px 14px 40px; max-width:520px; margin:0 auto; }
+  html, body { overflow-x: hidden; }
+  body { margin:0 auto; background:var(--bg); color:var(--ink); font-family:var(--font);
+    -webkit-font-smoothing:antialiased; padding:16px 14px calc(40px + env(safe-area-inset-bottom)); max-width:560px; min-height:100vh; }
+  .ctitle, .nm, .cmeta { overflow-wrap:anywhere; }
+  @media (max-width:360px) {
+    body { padding:12px 10px 32px; }
+    .hi { font-size:21px; }
+    .medal { width:calc(33.33% - 6px); padding:10px 4px; }
+    .medal .m { width:40px; height:40px; font-size:19px; }
+  }
+  @media (min-width:600px) { .hi { font-size:27px; } }
   .hi { font-size:24px; font-weight:800; margin:4px 0 2px; }
   .sub { font-size:13px; color:var(--soft); margin-bottom:18px; }
   .seclabel { font-size:12px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
@@ -282,7 +291,7 @@ window.doAction = async function (action, challengeId, btn) {
   try {
     const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action, challengeId }) });
     const d = await res.json();
-    if (d.ok) location.reload();
+    if (d.ok) { tg?.HapticFeedback?.impactOccurred?.("light"); await loadAndRender(); }
     else { notify(T.err + ": " + (d.error || "")); if (btn) btn.disabled = false; }
   } catch (e) { notify(T.net); if (btn) btn.disabled = false; }
 };
@@ -313,15 +322,16 @@ window.createChallengeUI = async function () {
   try {
     const res = await fetch(FUNCTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", title, icon: selectedIcon, kind, start_date: kind === "competitive" ? start_date : null }) });
     const d = await res.json();
-    if (d.ok) { msg.style.color = "var(--emerald)"; msg.textContent = T.created; setTimeout(() => location.reload(), 700); }
+    if (d.ok) { selectedIcon = "🔥"; tg?.HapticFeedback?.notificationOccurred?.("success"); await loadAndRender(); }
     else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (d.error || ""); btn.disabled = false; btn.textContent = T.create; }
   } catch (e) { msg.style.color = "var(--fire)"; msg.textContent = T.net; btn.disabled = false; btn.textContent = T.create; }
 };
 
-(async () => {
+async function loadAndRender() {
   try { render(SUPABASE_ANON_KEY ? await realData() : demoData()); }
   catch (e) { document.getElementById("app").innerHTML = `<div class="empty">${T.err} 😕<br><small>${e.message || e}</small></div>`; }
-})();
+}
+loadAndRender();
 </script>
 </body>
 </html>
