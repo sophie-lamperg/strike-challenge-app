@@ -62,6 +62,14 @@
     font-weight:800; font-size:15px; padding:13px; border-radius:14px; cursor:pointer; margin-top:2px; }
   .abtn:disabled { opacity:.6; }
   .amsg { font-size:13px; font-weight:700; text-align:center; margin-top:9px; }
+  .emoji-current { display:flex; align-items:center; gap:8px; background:var(--bg); border:1px solid var(--hair);
+    border-radius:12px; padding:9px 13px; font-size:22px; cursor:pointer; margin-bottom:9px; user-select:none; }
+  .emoji-current .cav { margin-left:auto; font-size:13px; color:var(--soft); }
+  .emoji-grid { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:9px; padding:8px;
+    background:var(--bg); border:1px solid var(--hair); border-radius:12px; }
+  .emoji-opt { width:40px; height:40px; border-radius:10px; border:1px solid transparent;
+    background:var(--card); font-size:21px; display:grid; place-items:center; cursor:pointer; }
+  .emoji-opt.sel { border-color:var(--fire); background:var(--fire-soft); }
 </style>
 </head>
 <body>
@@ -77,6 +85,8 @@ const TARGET_DAYS = 30;
 const APP_TZ = "Europe/Moscow";
 const ADMIN_ID = 437072815;
 const FUNCTION_URL = SUPABASE_URL + "/functions/v1/admin-create-challenge";
+const EMOJIS = ["🔥","🏃‍♀️","🏋️","🧘","🚶","💪","📖","✍️","🧠","💧","🥗","🍎","🚭","🍷","😴","🌅","🧴","🪥","🧹","💰","🎨","🎸","📸","🌱","🐶","☀️","🧊","📵","⏰","✅"];
+let selectedIcon = "🔥";
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -217,7 +227,9 @@ function adminPanelHTML() {
   return `<div class="seclabel">👑 Админка — создать челлендж</div>
   <div class="card">
     <input id="ac-title" class="ainput" placeholder="Название (напр. Зарядка по утрам)" />
-    <input id="ac-icon" class="ainput" placeholder="Иконка-эмодзи (напр. 🏃‍♀️)" maxlength="4" />
+    <label class="alabel">Иконка</label>
+    <div class="emoji-current" onclick="toggleEmoji()"><span id="ac-icon-display">🔥</span><span class="cav">выбрать ▾</span></div>
+    <div id="ac-emoji-grid" class="emoji-grid" style="display:none">${EMOJIS.map((e) => `<div class="emoji-opt${e === "🔥" ? " sel" : ""}" onclick="pickIcon('${e}',this)">${e}</div>`).join("")}</div>
     <div class="arow">
       <label class="achip"><input type="radio" name="ac-kind" value="open" checked onchange="toggleKind()"> 🔁 Обычный</label>
       <label class="achip"><input type="radio" name="ac-kind" value="competitive" onchange="toggleKind()"> 🏆 Соревнов.</label>
@@ -231,6 +243,17 @@ function adminPanelHTML() {
   </div>`;
 }
 
+window.toggleEmoji = function () {
+  const g = document.getElementById("ac-emoji-grid");
+  g.style.display = g.style.display === "none" ? "flex" : "none";
+};
+window.pickIcon = function (e, el) {
+  selectedIcon = e;
+  document.querySelectorAll(".emoji-opt").forEach((x) => x.classList.remove("sel"));
+  el.classList.add("sel");
+  document.getElementById("ac-icon-display").textContent = e;
+  document.getElementById("ac-emoji-grid").style.display = "none";
+};
 window.toggleKind = function () {
   const comp = document.querySelector('input[name=ac-kind]:checked').value === "competitive";
   document.getElementById("ac-date-row").style.display = comp ? "block" : "none";
@@ -238,7 +261,7 @@ window.toggleKind = function () {
 
 window.createChallengeUI = async function () {
   const title = document.getElementById("ac-title").value.trim();
-  const icon = document.getElementById("ac-icon").value.trim() || "🔥";
+  const icon = selectedIcon;
   const kind = document.querySelector('input[name=ac-kind]:checked').value;
   const start_date = document.getElementById("ac-date").value;
   const msg = document.getElementById("ac-msg");
