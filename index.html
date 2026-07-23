@@ -37,11 +37,17 @@
   .ava { width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px; }
   .nm { font-weight:700; font-size:14px; }
   .nm.you { color:var(--fire); }
-  .nm small { display:block; color:var(--soft); font-weight:600; font-size:11px; }
   .prog { margin-left:auto; text-align:right; }
   .streak { font-size:13px; font-weight:800; color:var(--fire); }
   .pdays { font-size:11px; color:var(--soft); }
   .today { font-size:15px; margin-left:8px; width:20px; text-align:center; }
+  .actrow { display:flex; gap:8px; margin-top:11px; }
+  .actbtn { flex:1; border:none; font-family:var(--font); font-weight:800; font-size:14px;
+    padding:11px; border-radius:12px; cursor:pointer; color:#fff; }
+  .actbtn.close { background:var(--emerald); }
+  .actbtn.skip { background:#B0A8BC; }
+  .actbtn.join { background:var(--fire); margin-top:11px; width:100%; }
+  .actbtn:disabled { opacity:.6; }
   .medals { display:flex; flex-wrap:wrap; gap:9px; }
   .medal { background:var(--card); border:1px solid var(--hair); border-radius:14px; padding:11px 6px; text-align:center; width:calc(33.33% - 6px); }
   .medal .m { width:44px;height:44px;border-radius:50%;margin:0 auto 6px;display:grid;place-items:center;font-size:22px; }
@@ -51,8 +57,9 @@
   .empty { color:var(--soft); font-size:14px; text-align:center; padding:30px 10px; }
   .demo { background:var(--amber-soft); color:#8a5a00; font-size:11px; font-weight:700;
     padding:6px 10px; border-radius:10px; margin-bottom:14px; text-align:center; }
-  .ainput { width:100%; background:var(--bg); border:1px solid var(--hair); border-radius:12px;
+  .ainput, .fbinput { width:100%; background:var(--bg); border:1px solid var(--hair); border-radius:12px;
     padding:11px 13px; font-size:14px; color:var(--ink); font-family:var(--font); margin-bottom:9px; }
+  .fbinput { min-height:70px; resize:vertical; }
   .arow { display:flex; gap:8px; margin-bottom:9px; }
   .achip { flex:1; display:flex; align-items:center; justify-content:center; gap:5px; cursor:pointer;
     background:var(--bg); border:1px solid var(--hair); border-radius:12px; padding:9px; font-size:13px; font-weight:700; }
@@ -73,18 +80,18 @@
 </style>
 </head>
 <body>
-  <div id="app"><div class="empty">Загрузка…</div></div>
+  <div id="app"><div class="empty">…</div></div>
 
 <script type="module">
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-// --- КОНФИГ (подставим реальные значения при подключении базы) ---
 const SUPABASE_URL = "https://xpfgbtwwascybtyvcibe.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_mB_ya3PU2bHk760gLkkRWQ_cXJXBgN7"; // публичный ключ — ок в браузере
+const SUPABASE_ANON_KEY = "sb_publishable_mB_ya3PU2bHk760gLkkRWQ_cXJXBgN7";
 const TARGET_DAYS = 30;
 const APP_TZ = "Europe/Moscow";
 const ADMIN_ID = 437072815;
 const FUNCTION_URL = SUPABASE_URL + "/functions/v1/admin-create-challenge";
+const APP_ACTION_URL = SUPABASE_URL + "/functions/v1/app-action";
 const EMOJIS = ["🔥","🏃‍♀️","🏋️","🧘","🚶","💪","📖","✍️","🧠","💧","🥗","🍎","🚭","🍷","😴","🌅","🧴","🪥","🧹","💰","🎨","🎸","📸","🌱","🐶","☀️","🧊","📵","⏰","✅"];
 let selectedIcon = "🔥";
 
@@ -92,203 +99,228 @@ const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
 const meId = tg?.initDataUnsafe?.user?.id || Number(new URLSearchParams(location.search).get("uid")) || null;
 
+// ---- локализация ----
+function pickLang() {
+  const c = tg?.initDataUnsafe?.user?.language_code || navigator.language || "en";
+  return String(c).toLowerCase().startsWith("ru") ? "ru" : "en";
+}
+const I18N = {
+  ru: {
+    hi: (n) => `Привет, ${n}! 🔥`, sub: "Кто чем занят и как держит серию",
+    demo: "👀 Демо-данные — база ещё не подключена",
+    secComp: "🏆 Соревновательные", secOpen: "🔁 Обычные",
+    compPrize: `🥇 приз за все ${TARGET_DAYS} дней`, openTag: `${TARGET_DAYS}-дневный челлендж`,
+    regular: "🔁 обычный", noOne: "Пока никто не вступил", you: "ты",
+    done: `🏆 ${TARGET_DAYS}/${TARGET_DAYS} — пройден!`,
+    join: "＋ Вступить", close: "✅ Закрыть день", skip: "🙈 Пропустить",
+    startIn: (n) => `⏳ старт через ${n} дн.`, running: (d) => `🟢 идёт · день ${d}/${TARGET_DAYS}`, finished: "🏁 завершён",
+    medals: (b) => `🏅 Твои медали · лучший стрик ${b} дн.`, m7: "Разгон", m14: "В ритме", m30: "Железо",
+    admin: "👑 Админка — создать челлендж", acTitle: "Название (напр. Зарядка по утрам)",
+    icon: "Иконка", pick: "выбрать ▾", kindOpen: "🔁 Обычный", kindComp: "🏆 Соревнов.",
+    startDate: "Дата старта", create: "Создать", creating: "Создаю…", created: "Создано ✅",
+    fbTitle: "💬 Отзыв · идея · баг", fbPh: "Что улучшить или что сломалось…", fbSend: "Отправить", fbSent: "Спасибо! Отправлено 🙏",
+    err: "Ошибка", needTitle: "Впиши название", needDate: "Выбери дату старта", net: "Ошибка сети", empty: "Пока нет челленджей 🙂",
+  },
+  en: {
+    hi: (n) => `Hi, ${n}! 🔥`, sub: "Who's up to what and how the streaks hold",
+    demo: "👀 Demo data — database not connected yet",
+    secComp: "🏆 Competitive", secOpen: "🔁 Regular",
+    compPrize: `🥇 prize for all ${TARGET_DAYS} days`, openTag: `${TARGET_DAYS}-day challenge`,
+    regular: "🔁 regular", noOne: "No one joined yet", you: "you",
+    done: `🏆 ${TARGET_DAYS}/${TARGET_DAYS} — done!`,
+    join: "＋ Join", close: "✅ Close today", skip: "🙈 Skip",
+    startIn: (n) => `⏳ starts in ${n} d.`, running: (d) => `🟢 live · day ${d}/${TARGET_DAYS}`, finished: "🏁 finished",
+    medals: (b) => `🏅 Your medals · best streak ${b} d.`, m7: "Kickoff", m14: "In rhythm", m30: "Iron",
+    admin: "👑 Admin — create a challenge", acTitle: "Title (e.g. Morning workout)",
+    icon: "Icon", pick: "choose ▾", kindOpen: "🔁 Regular", kindComp: "🏆 Competitive",
+    startDate: "Start date", create: "Create", creating: "Creating…", created: "Created ✅",
+    fbTitle: "💬 Feedback · idea · bug", fbPh: "What to improve or what's broken…", fbSend: "Send", fbSent: "Thanks! Sent 🙏",
+    err: "Error", needTitle: "Enter a title", needDate: "Pick a start date", net: "Network error", empty: "No challenges yet 🙂",
+  },
+};
+const T = I18N[pickLang()];
+
 function todayStr() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ, year:"numeric", month:"2-digit", day:"2-digit" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 const AVA = ["#FF5C39","#7B61FF","#16B981","#FFB020","#e8578f","#3aa0ff"];
 const avaColor = (id) => AVA[Math.abs(id) % AVA.length];
+function notify(m) { if (tg?.showAlert) tg.showAlert(m); else alert(m); }
 
-// --- ДЕМО-ДАННЫЕ (пока нет ключа — показываем дизайн) ---
 function demoData() {
   const today = todayStr();
   return {
-    demo: true, today,
-    users: [
-      { id:1, telegram_id:437072815, nickname:"arcveid" },
-      { id:2, telegram_id:111, nickname:"ToN" },
-      { id:3, telegram_id:222, nickname:"masha.k" },
-    ],
-    challenges: [
-      { id:10, title:"Марафон отжиманий", icon:"🏆", kind:"competitive", start_date:today },
-      { id:11, title:"Зарядка по утрам", icon:"🏃‍♀️", kind:"open" },
-    ],
+    demo: true, today, meId: 437072815,
+    users: [{ id: 1, telegram_id: 437072815, nickname: "arcveid" }, { id: 2, telegram_id: 111, nickname: "ToN" }, { id: 3, telegram_id: 222, nickname: "masha.k" }],
+    challenges: [{ id: 10, title: "Марафон отжиманий", icon: "🏆", kind: "competitive", start_date: today }, { id: 11, title: "Зарядка по утрам", icon: "🏃‍♀️", kind: "open" }],
     parts: [
-      { user_id:1, challenge_id:10, total_days:5, current_streak:5, best_streak:5 },
-      { user_id:2, challenge_id:10, total_days:5, current_streak:5, best_streak:8 },
-      { user_id:3, challenge_id:10, total_days:3, current_streak:0, best_streak:3 },
-      { user_id:1, challenge_id:11, total_days:12, current_streak:12, best_streak:14 },
-      { user_id:2, challenge_id:11, total_days:9, current_streak:3, best_streak:9 },
+      { user_id: 1, challenge_id: 10, total_days: 5, current_streak: 5, best_streak: 5 },
+      { user_id: 2, challenge_id: 10, total_days: 5, current_streak: 5, best_streak: 8 },
+      { user_id: 1, challenge_id: 11, total_days: 12, current_streak: 12, best_streak: 14 },
     ],
-    marks: [
-      { user_id:2, challenge_id:10, mark_date:today, status:"closed" },
-      { user_id:3, challenge_id:10, mark_date:today, status:"skipped" },
-      { user_id:1, challenge_id:11, mark_date:today, status:"closed" },
-    ],
-    meId: 437072815,
+    marks: [{ user_id: 2, challenge_id: 10, mark_date: today, status: "closed" }],
   };
 }
-
 async function realData() {
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const today = todayStr();
   const [u, c, p, m] = await Promise.all([
     sb.from("users").select("id, telegram_id, nickname"),
-    sb.from("challenges").select("id, title, icon, kind, start_date, status").eq("status","active"),
+    sb.from("challenges").select("id, title, icon, kind, start_date, status").eq("status", "active"),
     sb.from("participations").select("user_id, challenge_id, total_days, current_streak, best_streak"),
     sb.from("day_marks").select("user_id, challenge_id, status").eq("mark_date", today),
   ]);
-  if (u.error || c.error || p.error || m.error) throw (u.error||c.error||p.error||m.error);
-  return { demo:false, today, users:u.data, challenges:c.data, parts:p.data, marks:m.data, meId };
+  if (u.error || c.error || p.error || m.error) throw (u.error || c.error || p.error || m.error);
+  return { demo: false, today, users: u.data, challenges: c.data, parts: p.data, marks: m.data, meId };
 }
 
 function compStatus(start, today) {
   if (!start) return "";
-  const end = new Date(new Date(start+"T00:00:00Z").getTime() + (TARGET_DAYS-1)*864e5).toISOString().slice(0,10);
-  const days = (a,b)=>Math.round((new Date(a+"T00:00:00Z")-new Date(b+"T00:00:00Z"))/864e5);
-  if (today < start) return `⏳ старт через ${days(start,today)} дн.`;
-  if (today <= end) return `🟢 идёт · день ${days(today,start)+1}/${TARGET_DAYS}`;
-  return "🏁 завершён";
+  const end = new Date(+new Date(start + "T00:00:00Z") + (TARGET_DAYS - 1) * 864e5).toISOString().slice(0, 10);
+  const days = (a, b) => Math.round((+new Date(a + "T00:00:00Z") - +new Date(b + "T00:00:00Z")) / 864e5);
+  if (today < start) return T.startIn(days(start, today));
+  if (today <= end) return T.running(days(today, start) + 1);
+  return T.finished;
 }
 
 function render(d) {
-  const byId = Object.fromEntries(d.users.map(u=>[u.id,u]));
-  const meUser = d.users.find(u=>u.telegram_id===d.meId);
-  const app = document.getElementById("app");
+  const byId = Object.fromEntries(d.users.map((u) => [u.id, u]));
+  const meUser = d.users.find((u) => u.telegram_id === d.meId);
+  const key = (uid, cid) => `${uid}:${cid}`;
+  const markMap = {}; d.marks.forEach((x) => (markMap[key(x.user_id, x.challenge_id)] = x.status));
   let html = "";
-  if (d.demo) html += `<div class="demo">👀 Демо-данные — база ещё не подключена</div>`;
-  html += `<div class="hi">Привет, ${meUser?.nickname || "друг"}! 🔥</div>`;
-  html += `<div class="sub">Кто чем занят и как держит серию</div>`;
+  if (d.demo) html += `<div class="demo">${T.demo}</div>`;
+  html += `<div class="hi">${T.hi(meUser?.nickname || (pickLang() === "ru" ? "друг" : "friend"))}</div><div class="sub">${T.sub}</div>`;
 
-  const comp = d.challenges.filter(c=>c.kind==="competitive");
-  const open = d.challenges.filter(c=>c.kind!=="competitive");
-
-  const markKey = (uid,cid)=>`${uid}:${cid}`;
-  const markMap = {}; d.marks.forEach(x=>markMap[markKey(x.user_id,x.challenge_id)]=x.status);
+  const comp = d.challenges.filter((c) => c.kind === "competitive");
+  const open = d.challenges.filter((c) => c.kind !== "competitive");
 
   const renderChallenge = (c) => {
-    const rows = d.parts.filter(p=>p.challenge_id===c.id)
-      .sort((a,b)=> b.total_days-a.total_days || b.current_streak-a.current_streak);
-    const isComp = c.kind==="competitive";
+    const rows = d.parts.filter((p) => p.challenge_id === c.id).sort((a, b) => b.total_days - a.total_days || b.current_streak - a.current_streak);
+    const isComp = c.kind === "competitive";
     let s = `<div class="card"><div class="chead">
-      <div class="ico" style="background:${isComp?'var(--amber-soft)':'var(--fire-soft)'}">${c.icon||"🔥"}</div>
-      <div><div class="ctitle">${c.title}</div>
-        <div class="cmeta">${isComp ? "🥇 приз за все "+TARGET_DAYS+" дней" : TARGET_DAYS+"-дневный челлендж"}</div></div>
-      <div class="badge ${isComp?'comp':'open'}">${isComp ? compStatus(c.start_date, d.today) : "🔁 обычный"}</div>
-    </div>`;
+      <div class="ico" style="background:${isComp ? "var(--amber-soft)" : "var(--fire-soft)"}">${c.icon || "🔥"}</div>
+      <div><div class="ctitle">${c.title}</div><div class="cmeta">${isComp ? T.compPrize : T.openTag}</div></div>
+      <div class="badge ${isComp ? "comp" : "open"}">${isComp ? compStatus(c.start_date, d.today) : T.regular}</div></div>`;
     if (rows.length) {
       s += `<div class="lb">`;
       for (const p of rows) {
-        const u = byId[p.user_id]; if(!u) continue;
-        const you = u.telegram_id===d.meId;
-        const st = markMap[markKey(p.user_id,c.id)];
-        const stIco = st==="closed"?"✅":st==="skipped"?"🙈":"⏳";
-        const done = p.total_days>=TARGET_DAYS;
+        const u = byId[p.user_id]; if (!u) continue;
+        const you = u.telegram_id === d.meId;
+        const st = markMap[key(p.user_id, c.id)];
+        const stIco = st === "closed" ? "✅" : st === "skipped" ? "🙈" : "⏳";
+        const done = p.total_days >= TARGET_DAYS;
         s += `<div class="row">
-          <div class="ava" style="background:${avaColor(u.id)}">${(u.nickname||"?")[0].toUpperCase()}</div>
-          <div class="nm ${you?'you':''}">${you?"ты":u.nickname}</div>
-          <div class="prog">
-            <div class="streak">🔥 ${p.current_streak}</div>
-            <div class="pdays">${done?"🏆 "+TARGET_DAYS:p.total_days}/${TARGET_DAYS} дн.</div>
-          </div>
-          <div class="today">${stIco}</div>
-        </div>`;
+          <div class="ava" style="background:${avaColor(u.id)}">${(u.nickname || "?")[0].toUpperCase()}</div>
+          <div class="nm ${you ? "you" : ""}">${you ? T.you : u.nickname}</div>
+          <div class="prog"><div class="streak">🔥 ${p.current_streak}</div><div class="pdays">${done ? "🏆 " + TARGET_DAYS : p.total_days}/${TARGET_DAYS}</div></div>
+          <div class="today">${stIco}</div></div>`;
       }
       s += `</div>`;
     } else {
-      s += `<div class="cmeta" style="margin-top:10px">Пока никто не вступил</div>`;
+      s += `<div class="cmeta" style="margin-top:10px">${T.noOne}</div>`;
+    }
+    // действия текущего пользователя
+    if (meUser) {
+      const mine = rows.find((p) => p.user_id === meUser.id);
+      if (!mine) {
+        s += `<button class="actbtn join" onclick="doAction('join',${c.id},this)">${T.join}</button>`;
+      } else if (!markMap[key(meUser.id, c.id)]) {
+        s += `<div class="actrow">
+          <button class="actbtn close" onclick="doAction('close',${c.id},this)">${T.close}</button>
+          <button class="actbtn skip" onclick="doAction('skip',${c.id},this)">${T.skip}</button></div>`;
+      }
     }
     return s + `</div>`;
   };
 
-  if (comp.length) { html += `<div class="seclabel">🏆 Соревновательные</div>`; comp.forEach(c=>html+=renderChallenge(c)); }
-  if (open.length) { html += `<div class="seclabel">🔁 Обычные</div>`; open.forEach(c=>html+=renderChallenge(c)); }
-  if (!d.challenges.length) html += `<div class="empty">Пока нет челленджей 🙂</div>`;
+  if (comp.length) { html += `<div class="seclabel">${T.secComp}</div>`; comp.forEach((c) => (html += renderChallenge(c))); }
+  if (open.length) { html += `<div class="seclabel">${T.secOpen}</div>`; open.forEach((c) => (html += renderChallenge(c))); }
+  if (!d.challenges.length) html += `<div class="empty">${T.empty}</div>`;
 
-  // Медали (по лучшему стрику среди моих участий)
   if (meUser) {
-    const mine = d.parts.filter(p=>p.user_id===meUser.id);
-    const best = mine.reduce((mx,p)=>Math.max(mx,p.best_streak||0),0);
-    const tiers = [{d:7,e:"🔥",n:"Разгон"},{d:14,e:"⚡",n:"В ритме"},{d:30,e:"🏆",n:"Железо"}];
-    html += `<div class="seclabel">🏅 Твои медали · лучший стрик ${best} дн.</div><div class="medals">`;
+    const mine = d.parts.filter((p) => p.user_id === meUser.id);
+    const best = mine.reduce((mx, p) => Math.max(mx, p.best_streak || 0), 0);
+    const tiers = [{ d: 7, e: "🔥", n: T.m7 }, { d: 14, e: "⚡", n: T.m14 }, { d: 30, e: "🏆", n: T.m30 }];
+    html += `<div class="seclabel">${T.medals(best)}</div><div class="medals">`;
     for (const t of tiers) {
-      const got = best>=t.d;
-      html += `<div class="medal ${got?'':'lock'}"><div class="m" ${got?'style="background:var(--fire-soft)"':''}>${t.e}</div>
-        <small>${t.n}</small><span class="d">${t.d} дней</span></div>`;
+      const got = best >= t.d;
+      html += `<div class="medal ${got ? "" : "lock"}"><div class="m" ${got ? 'style="background:var(--fire-soft)"' : ""}>${t.e}</div><small>${t.n}</small><span class="d">${t.d} ${pickLang() === "ru" ? "дней" : "days"}</span></div>`;
     }
     html += `</div>`;
   }
 
   if (d.meId === ADMIN_ID) html += adminPanelHTML();
+  html += feedbackHTML();
 
-  app.innerHTML = html;
+  document.getElementById("app").innerHTML = html;
 }
 
+function feedbackHTML() {
+  return `<div class="seclabel">${T.fbTitle}</div><div class="card">
+    <textarea id="fb-text" class="fbinput" placeholder="${T.fbPh}"></textarea>
+    <button id="fb-send" class="abtn" onclick="sendFeedback()">${T.fbSend}</button>
+    <div id="fb-msg" class="amsg"></div></div>`;
+}
 function adminPanelHTML() {
-  return `<div class="seclabel">👑 Админка — создать челлендж</div>
-  <div class="card">
-    <input id="ac-title" class="ainput" placeholder="Название (напр. Зарядка по утрам)" />
-    <label class="alabel">Иконка</label>
-    <div class="emoji-current" onclick="toggleEmoji()"><span id="ac-icon-display">🔥</span><span class="cav">выбрать ▾</span></div>
+  return `<div class="seclabel">${T.admin}</div><div class="card">
+    <input id="ac-title" class="ainput" placeholder="${T.acTitle}" />
+    <label class="alabel">${T.icon}</label>
+    <div class="emoji-current" onclick="toggleEmoji()"><span id="ac-icon-display">🔥</span><span class="cav">${T.pick}</span></div>
     <div id="ac-emoji-grid" class="emoji-grid" style="display:none">${EMOJIS.map((e) => `<div class="emoji-opt${e === "🔥" ? " sel" : ""}" onclick="pickIcon('${e}',this)">${e}</div>`).join("")}</div>
     <div class="arow">
-      <label class="achip"><input type="radio" name="ac-kind" value="open" checked onchange="toggleKind()"> 🔁 Обычный</label>
-      <label class="achip"><input type="radio" name="ac-kind" value="competitive" onchange="toggleKind()"> 🏆 Соревнов.</label>
-    </div>
-    <div id="ac-date-row" style="display:none">
-      <label class="alabel">Дата старта</label>
-      <input id="ac-date" type="date" class="ainput" />
-    </div>
-    <button id="ac-submit" class="abtn" onclick="createChallengeUI()">Создать</button>
-    <div id="ac-msg" class="amsg"></div>
-  </div>`;
+      <label class="achip"><input type="radio" name="ac-kind" value="open" checked onchange="toggleKind()"> ${T.kindOpen}</label>
+      <label class="achip"><input type="radio" name="ac-kind" value="competitive" onchange="toggleKind()"> ${T.kindComp}</label></div>
+    <div id="ac-date-row" style="display:none"><label class="alabel">${T.startDate}</label><input id="ac-date" type="date" class="ainput" /></div>
+    <button id="ac-submit" class="abtn" onclick="createChallengeUI()">${T.create}</button>
+    <div id="ac-msg" class="amsg"></div></div>`;
 }
 
-window.toggleEmoji = function () {
-  const g = document.getElementById("ac-emoji-grid");
-  g.style.display = g.style.display === "none" ? "flex" : "none";
+// ---- действия (через Edge Function, с подписью Telegram) ----
+window.doAction = async function (action, challengeId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action, challengeId }) });
+    const d = await res.json();
+    if (d.ok) location.reload();
+    else { notify(T.err + ": " + (d.error || "")); if (btn) btn.disabled = false; }
+  } catch (e) { notify(T.net); if (btn) btn.disabled = false; }
 };
-window.pickIcon = function (e, el) {
-  selectedIcon = e;
-  document.querySelectorAll(".emoji-opt").forEach((x) => x.classList.remove("sel"));
-  el.classList.add("sel");
-  document.getElementById("ac-icon-display").textContent = e;
-  document.getElementById("ac-emoji-grid").style.display = "none";
+window.sendFeedback = async function () {
+  const text = document.getElementById("fb-text").value.trim();
+  const msg = document.getElementById("fb-msg");
+  if (!text) return;
+  const btn = document.getElementById("fb-send"); btn.disabled = true;
+  try {
+    const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action: "feedback", text }) });
+    const d = await res.json();
+    if (d.ok) { msg.style.color = "var(--emerald)"; msg.textContent = T.fbSent; document.getElementById("fb-text").value = ""; }
+    else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (d.error || ""); }
+  } catch (e) { msg.style.color = "var(--fire)"; msg.textContent = T.net; }
+  btn.disabled = false;
 };
-window.toggleKind = function () {
-  const comp = document.querySelector('input[name=ac-kind]:checked').value === "competitive";
-  document.getElementById("ac-date-row").style.display = comp ? "block" : "none";
-};
-
+window.toggleEmoji = function () { const g = document.getElementById("ac-emoji-grid"); g.style.display = g.style.display === "none" ? "flex" : "none"; };
+window.pickIcon = function (e, el) { selectedIcon = e; document.querySelectorAll(".emoji-opt").forEach((x) => x.classList.remove("sel")); el.classList.add("sel"); document.getElementById("ac-icon-display").textContent = e; document.getElementById("ac-emoji-grid").style.display = "none"; };
+window.toggleKind = function () { const comp = document.querySelector("input[name=ac-kind]:checked").value === "competitive"; document.getElementById("ac-date-row").style.display = comp ? "block" : "none"; };
 window.createChallengeUI = async function () {
   const title = document.getElementById("ac-title").value.trim();
-  const icon = selectedIcon;
-  const kind = document.querySelector('input[name=ac-kind]:checked').value;
+  const kind = document.querySelector("input[name=ac-kind]:checked").value;
   const start_date = document.getElementById("ac-date").value;
   const msg = document.getElementById("ac-msg");
-  if (!title) { msg.style.color = "var(--fire)"; msg.textContent = "Впиши название"; return; }
-  if (kind === "competitive" && !start_date) { msg.style.color = "var(--fire)"; msg.textContent = "Выбери дату старта"; return; }
-  const btn = document.getElementById("ac-submit");
-  btn.disabled = true; btn.textContent = "Создаю…"; msg.textContent = "";
+  if (!title) { msg.style.color = "var(--fire)"; msg.textContent = T.needTitle; return; }
+  if (kind === "competitive" && !start_date) { msg.style.color = "var(--fire)"; msg.textContent = T.needDate; return; }
+  const btn = document.getElementById("ac-submit"); btn.disabled = true; btn.textContent = T.creating; msg.textContent = "";
   try {
-    const res = await fetch(FUNCTION_URL, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ initData: tg?.initData || "", title, icon, kind, start_date: kind === "competitive" ? start_date : null }),
-    });
-    const data = await res.json();
-    if (data.ok) { msg.style.color = "var(--emerald)"; msg.textContent = "Создано ✅"; setTimeout(() => location.reload(), 700); }
-    else { msg.style.color = "var(--fire)"; msg.textContent = "Не удалось: " + (data.error || "ошибка"); btn.disabled = false; btn.textContent = "Создать"; }
-  } catch (e) {
-    msg.style.color = "var(--fire)"; msg.textContent = "Ошибка сети"; btn.disabled = false; btn.textContent = "Создать";
-  }
+    const res = await fetch(FUNCTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", title, icon: selectedIcon, kind, start_date: kind === "competitive" ? start_date : null }) });
+    const d = await res.json();
+    if (d.ok) { msg.style.color = "var(--emerald)"; msg.textContent = T.created; setTimeout(() => location.reload(), 700); }
+    else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (d.error || ""); btn.disabled = false; btn.textContent = T.create; }
+  } catch (e) { msg.style.color = "var(--fire)"; msg.textContent = T.net; btn.disabled = false; btn.textContent = T.create; }
 };
 
 (async () => {
-  try {
-    const d = SUPABASE_ANON_KEY ? await realData() : demoData();
-    render(d);
-  } catch (e) {
-    document.getElementById("app").innerHTML = `<div class="empty">Ошибка загрузки 😕<br><small>${e.message||e}</small></div>`;
-  }
+  try { render(SUPABASE_ANON_KEY ? await realData() : demoData()); }
+  catch (e) { document.getElementById("app").innerHTML = `<div class="empty">${T.err} 😕<br><small>${e.message || e}</small></div>`; }
 })();
 </script>
 </body>
