@@ -86,6 +86,12 @@
   .emoji-opt { width:40px; height:40px; border-radius:10px; border:1px solid transparent;
     background:var(--card); font-size:21px; display:grid; place-items:center; cursor:pointer; }
   .emoji-opt.sel { border-color:var(--fire); background:var(--fire-soft); }
+  .sgitem { display:flex; align-items:center; gap:8px; padding:9px 0; border-bottom:1px solid var(--hair); }
+  .sgitem:last-child { border-bottom:none; }
+  .sgitem .t { font-weight:700; font-size:14px; flex:1; overflow-wrap:anywhere; }
+  .sgitem .t small { display:block; color:var(--soft); font-weight:600; font-size:11px; }
+  .sgbtn { border:none; border-radius:10px; padding:8px 11px; font-family:var(--font); font-weight:800; font-size:12.5px; cursor:pointer; color:#fff; flex:none; }
+  .sgbtn.ok { background:var(--emerald); } .sgbtn.no { background:#B0A8BC; }
 </style>
 </head>
 <body>
@@ -129,6 +135,8 @@ const I18N = {
     startDate: "Дата старта", create: "Создать", creating: "Создаю…", created: "Создано ✅",
     fbTitle: "💬 Отзыв · идея · баг", fbPh: "Что улучшить или что сломалось…", fbSend: "Отправить", fbSent: "Спасибо! Отправлено 🙏",
     err: "Ошибка", needTitle: "Впиши название", needDate: "Выбери дату старта", net: "Ошибка сети", empty: "Пока нет челленджей 🙂",
+    sgTitle: "💡 Предложить челлендж", sgPh: "Название привычки или челленджа…", sgSend: "Предложить", sgSent: "Спасибо! Отправлено админу 🙌",
+    pendingTitle: "📥 Заявки на челлендж", by: "от", approve: "Одобрить", reject: "Отклонить",
   },
   en: {
     hi: (n) => `Hi, ${n}! 🔥`, sub: "Who's up to what and how the streaks hold",
@@ -145,6 +153,8 @@ const I18N = {
     startDate: "Start date", create: "Create", creating: "Creating…", created: "Created ✅",
     fbTitle: "💬 Feedback · idea · bug", fbPh: "What to improve or what's broken…", fbSend: "Send", fbSent: "Thanks! Sent 🙏",
     err: "Error", needTitle: "Enter a title", needDate: "Pick a start date", net: "Network error", empty: "No challenges yet 🙂",
+    sgTitle: "💡 Suggest a challenge", sgPh: "Name of a habit or challenge…", sgSend: "Suggest", sgSent: "Thanks! Sent to the admin 🙌",
+    pendingTitle: "📥 Challenge requests", by: "by", approve: "Approve", reject: "Reject",
   },
 };
 const T = I18N[pickLang()];
@@ -168,19 +178,21 @@ function demoData() {
       { user_id: 1, challenge_id: 11, total_days: 12, current_streak: 12, best_streak: 14 },
     ],
     marks: [{ user_id: 2, challenge_id: 10, mark_date: today, status: "closed" }],
+    suggestions: [{ id: 99, title: "Медитация 10 минут", users: { nickname: "ToN" } }],
   };
 }
 async function realData() {
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const today = todayStr();
-  const [u, c, p, m] = await Promise.all([
+  const [u, c, p, m, s] = await Promise.all([
     sb.from("users").select("id, telegram_id, nickname"),
     sb.from("challenges").select("id, title, icon, kind, start_date, status").eq("status", "active"),
     sb.from("participations").select("user_id, challenge_id, total_days, current_streak, best_streak"),
     sb.from("day_marks").select("user_id, challenge_id, status").eq("mark_date", today),
+    sb.from("suggestions").select("id, title, users(nickname)").eq("status", "pending").order("created_at"),
   ]);
   if (u.error || c.error || p.error || m.error) throw (u.error || c.error || p.error || m.error);
-  return { demo: false, today, users: u.data, challenges: c.data, parts: p.data, marks: m.data, meId };
+  return { demo: false, today, users: u.data, challenges: c.data, parts: p.data, marks: m.data, suggestions: s.data || [], meId };
 }
 
 function compStatus(start, today) {
@@ -259,10 +271,29 @@ function render(d) {
     html += `</div>`;
   }
 
+  html += suggestHTML();
+  if (d.meId === ADMIN_ID) html += pendingHTML(d.suggestions || []);
   if (d.meId === ADMIN_ID) html += adminPanelHTML();
   html += feedbackHTML();
 
   document.getElementById("app").innerHTML = html;
+}
+
+function suggestHTML() {
+  return `<div class="seclabel">${T.sgTitle}</div><div class="card">
+    <input id="sg-text" class="ainput" placeholder="${T.sgPh}" />
+    <button id="sg-send" class="abtn" onclick="doSuggest()">${T.sgSend}</button>
+    <div id="sg-msg" class="amsg"></div></div>`;
+}
+function pendingHTML(list) {
+  if (!list.length) return "";
+  let s = `<div class="seclabel">${T.pendingTitle}</div><div class="card">`;
+  for (const sg of list) {
+    s += `<div class="sgitem"><div class="t">${sg.title}<small>${T.by} ${sg.users?.nickname || "?"}</small></div>
+      <button class="sgbtn ok" onclick="doSuggestAction('suggest_approve',${sg.id},this)">${T.approve}</button>
+      <button class="sgbtn no" onclick="doSuggestAction('suggest_reject',${sg.id},this)">${T.reject}</button></div>`;
+  }
+  return s + `</div>`;
 }
 
 function feedbackHTML() {
@@ -307,6 +338,27 @@ window.sendFeedback = async function () {
     else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (d.error || ""); }
   } catch (e) { msg.style.color = "var(--fire)"; msg.textContent = T.net; }
   btn.disabled = false;
+};
+window.doSuggest = async function () {
+  const el = document.getElementById("sg-text"); const title = el.value.trim(); const msg = document.getElementById("sg-msg");
+  if (!title) return;
+  const btn = document.getElementById("sg-send"); btn.disabled = true;
+  try {
+    const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action: "suggest", text: title }) });
+    const d = await res.json();
+    if (d.ok) { msg.style.color = "var(--emerald)"; msg.textContent = T.sgSent; el.value = ""; }
+    else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (d.error || ""); }
+  } catch (e) { msg.style.color = "var(--fire)"; msg.textContent = T.net; }
+  btn.disabled = false;
+};
+window.doSuggestAction = async function (action, id, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action, suggestionId: id }) });
+    const d = await res.json();
+    if (d.ok) { tg?.HapticFeedback?.impactOccurred?.("light"); await loadAndRender(); }
+    else { notify(T.err + ": " + (d.error || "")); if (btn) btn.disabled = false; }
+  } catch (e) { notify(T.net); if (btn) btn.disabled = false; }
 };
 window.toggleEmoji = function () { const g = document.getElementById("ac-emoji-grid"); g.style.display = g.style.display === "none" ? "flex" : "none"; };
 window.pickIcon = function (e, el) { selectedIcon = e; document.querySelectorAll(".emoji-opt").forEach((x) => x.classList.remove("sel")); el.classList.add("sel"); document.getElementById("ac-icon-display").textContent = e; document.getElementById("ac-emoji-grid").style.display = "none"; };
