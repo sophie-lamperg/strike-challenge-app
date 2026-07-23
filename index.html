@@ -51,6 +51,17 @@
   .empty { color:var(--soft); font-size:14px; text-align:center; padding:30px 10px; }
   .demo { background:var(--amber-soft); color:#8a5a00; font-size:11px; font-weight:700;
     padding:6px 10px; border-radius:10px; margin-bottom:14px; text-align:center; }
+  .ainput { width:100%; background:var(--bg); border:1px solid var(--hair); border-radius:12px;
+    padding:11px 13px; font-size:14px; color:var(--ink); font-family:var(--font); margin-bottom:9px; }
+  .arow { display:flex; gap:8px; margin-bottom:9px; }
+  .achip { flex:1; display:flex; align-items:center; justify-content:center; gap:5px; cursor:pointer;
+    background:var(--bg); border:1px solid var(--hair); border-radius:12px; padding:9px; font-size:13px; font-weight:700; }
+  .achip input { accent-color:var(--fire); }
+  .alabel { font-size:12px; font-weight:800; color:var(--soft); display:block; margin:2px 2px 5px; }
+  .abtn { width:100%; border:none; background:var(--fire); color:#fff; font-family:var(--font);
+    font-weight:800; font-size:15px; padding:13px; border-radius:14px; cursor:pointer; margin-top:2px; }
+  .abtn:disabled { opacity:.6; }
+  .amsg { font-size:13px; font-weight:700; text-align:center; margin-top:9px; }
 </style>
 </head>
 <body>
@@ -64,6 +75,8 @@ const SUPABASE_URL = "https://xpfgbtwwascybtyvcibe.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_mB_ya3PU2bHk760gLkkRWQ_cXJXBgN7"; // публичный ключ — ок в браузере
 const TARGET_DAYS = 30;
 const APP_TZ = "Europe/Moscow";
+const ADMIN_ID = 437072815;
+const FUNCTION_URL = SUPABASE_URL + "/functions/v1/admin-create-challenge";
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -195,8 +208,56 @@ function render(d) {
     html += `</div>`;
   }
 
+  if (d.meId === ADMIN_ID) html += adminPanelHTML();
+
   app.innerHTML = html;
 }
+
+function adminPanelHTML() {
+  return `<div class="seclabel">👑 Админка — создать челлендж</div>
+  <div class="card">
+    <input id="ac-title" class="ainput" placeholder="Название (напр. Зарядка по утрам)" />
+    <input id="ac-icon" class="ainput" placeholder="Иконка-эмодзи (напр. 🏃‍♀️)" maxlength="4" />
+    <div class="arow">
+      <label class="achip"><input type="radio" name="ac-kind" value="open" checked onchange="toggleKind()"> 🔁 Обычный</label>
+      <label class="achip"><input type="radio" name="ac-kind" value="competitive" onchange="toggleKind()"> 🏆 Соревнов.</label>
+    </div>
+    <div id="ac-date-row" style="display:none">
+      <label class="alabel">Дата старта</label>
+      <input id="ac-date" type="date" class="ainput" />
+    </div>
+    <button id="ac-submit" class="abtn" onclick="createChallengeUI()">Создать</button>
+    <div id="ac-msg" class="amsg"></div>
+  </div>`;
+}
+
+window.toggleKind = function () {
+  const comp = document.querySelector('input[name=ac-kind]:checked').value === "competitive";
+  document.getElementById("ac-date-row").style.display = comp ? "block" : "none";
+};
+
+window.createChallengeUI = async function () {
+  const title = document.getElementById("ac-title").value.trim();
+  const icon = document.getElementById("ac-icon").value.trim() || "🔥";
+  const kind = document.querySelector('input[name=ac-kind]:checked').value;
+  const start_date = document.getElementById("ac-date").value;
+  const msg = document.getElementById("ac-msg");
+  if (!title) { msg.style.color = "var(--fire)"; msg.textContent = "Впиши название"; return; }
+  if (kind === "competitive" && !start_date) { msg.style.color = "var(--fire)"; msg.textContent = "Выбери дату старта"; return; }
+  const btn = document.getElementById("ac-submit");
+  btn.disabled = true; btn.textContent = "Создаю…"; msg.textContent = "";
+  try {
+    const res = await fetch(FUNCTION_URL, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ initData: tg?.initData || "", title, icon, kind, start_date: kind === "competitive" ? start_date : null }),
+    });
+    const data = await res.json();
+    if (data.ok) { msg.style.color = "var(--emerald)"; msg.textContent = "Создано ✅"; setTimeout(() => location.reload(), 700); }
+    else { msg.style.color = "var(--fire)"; msg.textContent = "Не удалось: " + (data.error || "ошибка"); btn.disabled = false; btn.textContent = "Создать"; }
+  } catch (e) {
+    msg.style.color = "var(--fire)"; msg.textContent = "Ошибка сети"; btn.disabled = false; btn.textContent = "Создать";
+  }
+};
 
 (async () => {
   try {
