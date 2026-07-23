@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Страйк Челлендж</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #FBF6EF; --card: #FFFFFF; --ink: #241F2E; --soft: #8A8290; --hair: #F0E8DE;
+    --fire: #FF5C39; --fire-soft: #FFE7DF; --grape: #7B61FF; --grape-soft: #ECE7FF;
+    --emerald: #16B981; --emerald-soft: #DBF6EB; --amber: #FFB020; --amber-soft: #FFF1D6;
+    --font: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#15121C; --card:#1F1B29; --ink:#F4EFF7; --soft:#A79FB2; --hair:#2C2738;
+      --fire-soft:#3a241d; --grape-soft:#2a2440; --emerald-soft:#123a2c; --amber-soft:#3a2f16; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--font);
+    -webkit-font-smoothing:antialiased; padding:16px 14px 40px; max-width:520px; margin:0 auto; }
+  .hi { font-size:24px; font-weight:800; margin:4px 0 2px; }
+  .sub { font-size:13px; color:var(--soft); margin-bottom:18px; }
+  .seclabel { font-size:12px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--soft); margin:22px 4px 10px; }
+  .card { background:var(--card); border:1px solid var(--hair); border-radius:18px;
+    padding:14px; margin-bottom:12px; box-shadow:0 6px 16px -12px rgba(40,20,50,.25); }
+  .chead { display:flex; align-items:center; gap:11px; }
+  .ico { width:44px;height:44px;border-radius:13px;flex:none;display:grid;place-items:center;font-size:23px;background:var(--fire-soft); }
+  .ctitle { font-size:16px; font-weight:800; }
+  .cmeta { font-size:12px; color:var(--soft); margin-top:1px; }
+  .badge { margin-left:auto; font-size:11px; font-weight:800; padding:5px 9px; border-radius:999px; white-space:nowrap; }
+  .badge.open { background:var(--emerald-soft); color:var(--emerald); }
+  .badge.comp { background:var(--amber-soft); color:#B47500; }
+  .lb { margin-top:12px; border-top:1px solid var(--hair); padding-top:8px; }
+  .row { display:flex; align-items:center; gap:10px; padding:7px 2px; }
+  .ava { width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px; }
+  .nm { font-weight:700; font-size:14px; }
+  .nm.you { color:var(--fire); }
+  .nm small { display:block; color:var(--soft); font-weight:600; font-size:11px; }
+  .prog { margin-left:auto; text-align:right; }
+  .streak { font-size:13px; font-weight:800; color:var(--fire); }
+  .pdays { font-size:11px; color:var(--soft); }
+  .today { font-size:15px; margin-left:8px; width:20px; text-align:center; }
+  .medals { display:flex; flex-wrap:wrap; gap:9px; }
+  .medal { background:var(--card); border:1px solid var(--hair); border-radius:14px; padding:11px 6px; text-align:center; width:calc(33.33% - 6px); }
+  .medal .m { width:44px;height:44px;border-radius:50%;margin:0 auto 6px;display:grid;place-items:center;font-size:22px; }
+  .medal small { font-size:10.5px; font-weight:800; display:block; }
+  .medal .d { font-size:9.5px; color:var(--soft); }
+  .medal.lock { opacity:.45; } .medal.lock .m { background:var(--hair); filter:grayscale(1); }
+  .empty { color:var(--soft); font-size:14px; text-align:center; padding:30px 10px; }
+  .demo { background:var(--amber-soft); color:#8a5a00; font-size:11px; font-weight:700;
+    padding:6px 10px; border-radius:10px; margin-bottom:14px; text-align:center; }
+</style>
+</head>
+<body>
+  <div id="app"><div class="empty">Загрузка…</div></div>
+
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+// --- КОНФИГ (подставим реальные значения при подключении базы) ---
+const SUPABASE_URL = "https://xpfgbtwwascybtyvcibe.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_mB_ya3PU2bHk760gLkkRWQ_cXJXBgN7"; // публичный ключ — ок в браузере
+const TARGET_DAYS = 30;
+const APP_TZ = "Europe/Moscow";
+
+const tg = window.Telegram?.WebApp;
+tg?.ready(); tg?.expand();
+const meId = tg?.initDataUnsafe?.user?.id || Number(new URLSearchParams(location.search).get("uid")) || null;
+
+function todayStr() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ, year:"numeric", month:"2-digit", day:"2-digit" }).format(new Date());
+}
+const AVA = ["#FF5C39","#7B61FF","#16B981","#FFB020","#e8578f","#3aa0ff"];
+const avaColor = (id) => AVA[Math.abs(id) % AVA.length];
+
+// --- ДЕМО-ДАННЫЕ (пока нет ключа — показываем дизайн) ---
+function demoData() {
+  const today = todayStr();
+  return {
+    demo: true, today,
+    users: [
+      { id:1, telegram_id:437072815, nickname:"arcveid" },
+      { id:2, telegram_id:111, nickname:"ToN" },
+      { id:3, telegram_id:222, nickname:"masha.k" },
+    ],
+    challenges: [
+      { id:10, title:"Марафон отжиманий", icon:"🏆", kind:"competitive", start_date:today },
+      { id:11, title:"Зарядка по утрам", icon:"🏃‍♀️", kind:"open" },
+    ],
+    parts: [
+      { user_id:1, challenge_id:10, total_days:5, current_streak:5, best_streak:5 },
+      { user_id:2, challenge_id:10, total_days:5, current_streak:5, best_streak:8 },
+      { user_id:3, challenge_id:10, total_days:3, current_streak:0, best_streak:3 },
+      { user_id:1, challenge_id:11, total_days:12, current_streak:12, best_streak:14 },
+      { user_id:2, challenge_id:11, total_days:9, current_streak:3, best_streak:9 },
+    ],
+    marks: [
+      { user_id:2, challenge_id:10, mark_date:today, status:"closed" },
+      { user_id:3, challenge_id:10, mark_date:today, status:"skipped" },
+      { user_id:1, challenge_id:11, mark_date:today, status:"closed" },
+    ],
+    meId: 437072815,
+  };
+}
+
+async function realData() {
+  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const today = todayStr();
+  const [u, c, p, m] = await Promise.all([
+    sb.from("users").select("id, telegram_id, nickname"),
+    sb.from("challenges").select("id, title, icon, kind, start_date, status").eq("status","active"),
+    sb.from("participations").select("user_id, challenge_id, total_days, current_streak, best_streak"),
+    sb.from("day_marks").select("user_id, challenge_id, status").eq("mark_date", today),
+  ]);
+  if (u.error || c.error || p.error || m.error) throw (u.error||c.error||p.error||m.error);
+  return { demo:false, today, users:u.data, challenges:c.data, parts:p.data, marks:m.data, meId };
+}
+
+function compStatus(start, today) {
+  if (!start) return "";
+  const end = new Date(new Date(start+"T00:00:00Z").getTime() + (TARGET_DAYS-1)*864e5).toISOString().slice(0,10);
+  const days = (a,b)=>Math.round((new Date(a+"T00:00:00Z")-new Date(b+"T00:00:00Z"))/864e5);
+  if (today < start) return `⏳ старт через ${days(start,today)} дн.`;
+  if (today <= end) return `🟢 идёт · день ${days(today,start)+1}/${TARGET_DAYS}`;
+  return "🏁 завершён";
+}
+
+function render(d) {
+  const byId = Object.fromEntries(d.users.map(u=>[u.id,u]));
+  const meUser = d.users.find(u=>u.telegram_id===d.meId);
+  const app = document.getElementById("app");
+  let html = "";
+  if (d.demo) html += `<div class="demo">👀 Демо-данные — база ещё не подключена</div>`;
+  html += `<div class="hi">Привет, ${meUser?.nickname || "друг"}! 🔥</div>`;
+  html += `<div class="sub">Кто чем занят и как держит серию</div>`;
+
+  const comp = d.challenges.filter(c=>c.kind==="competitive");
+  const open = d.challenges.filter(c=>c.kind!=="competitive");
+
+  const markKey = (uid,cid)=>`${uid}:${cid}`;
+  const markMap = {}; d.marks.forEach(x=>markMap[markKey(x.user_id,x.challenge_id)]=x.status);
+
+  const renderChallenge = (c) => {
+    const rows = d.parts.filter(p=>p.challenge_id===c.id)
+      .sort((a,b)=> b.total_days-a.total_days || b.current_streak-a.current_streak);
+    const isComp = c.kind==="competitive";
+    let s = `<div class="card"><div class="chead">
+      <div class="ico" style="background:${isComp?'var(--amber-soft)':'var(--fire-soft)'}">${c.icon||"🔥"}</div>
+      <div><div class="ctitle">${c.title}</div>
+        <div class="cmeta">${isComp ? "🥇 приз за все "+TARGET_DAYS+" дней" : TARGET_DAYS+"-дневный челлендж"}</div></div>
+      <div class="badge ${isComp?'comp':'open'}">${isComp ? compStatus(c.start_date, d.today) : "🔁 обычный"}</div>
+    </div>`;
+    if (rows.length) {
+      s += `<div class="lb">`;
+      for (const p of rows) {
+        const u = byId[p.user_id]; if(!u) continue;
+        const you = u.telegram_id===d.meId;
+        const st = markMap[markKey(p.user_id,c.id)];
+        const stIco = st==="closed"?"✅":st==="skipped"?"🙈":"⏳";
+        const done = p.total_days>=TARGET_DAYS;
+        s += `<div class="row">
+          <div class="ava" style="background:${avaColor(u.id)}">${(u.nickname||"?")[0].toUpperCase()}</div>
+          <div class="nm ${you?'you':''}">${you?"ты":u.nickname}</div>
+          <div class="prog">
+            <div class="streak">🔥 ${p.current_streak}</div>
+            <div class="pdays">${done?"🏆 "+TARGET_DAYS:p.total_days}/${TARGET_DAYS} дн.</div>
+          </div>
+          <div class="today">${stIco}</div>
+        </div>`;
+      }
+      s += `</div>`;
+    } else {
+      s += `<div class="cmeta" style="margin-top:10px">Пока никто не вступил</div>`;
+    }
+    return s + `</div>`;
+  };
+
+  if (comp.length) { html += `<div class="seclabel">🏆 Соревновательные</div>`; comp.forEach(c=>html+=renderChallenge(c)); }
+  if (open.length) { html += `<div class="seclabel">🔁 Обычные</div>`; open.forEach(c=>html+=renderChallenge(c)); }
+  if (!d.challenges.length) html += `<div class="empty">Пока нет челленджей 🙂</div>`;
+
+  // Медали (по лучшему стрику среди моих участий)
+  if (meUser) {
+    const mine = d.parts.filter(p=>p.user_id===meUser.id);
+    const best = mine.reduce((mx,p)=>Math.max(mx,p.best_streak||0),0);
+    const tiers = [{d:7,e:"🔥",n:"Разгон"},{d:14,e:"⚡",n:"В ритме"},{d:30,e:"🏆",n:"Железо"}];
+    html += `<div class="seclabel">🏅 Твои медали · лучший стрик ${best} дн.</div><div class="medals">`;
+    for (const t of tiers) {
+      const got = best>=t.d;
+      html += `<div class="medal ${got?'':'lock'}"><div class="m" ${got?'style="background:var(--fire-soft)"':''}>${t.e}</div>
+        <small>${t.n}</small><span class="d">${t.d} дней</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  app.innerHTML = html;
+}
+
+(async () => {
+  try {
+    const d = SUPABASE_ANON_KEY ? await realData() : demoData();
+    render(d);
+  } catch (e) {
+    document.getElementById("app").innerHTML = `<div class="empty">Ошибка загрузки 😕<br><small>${e.message||e}</small></div>`;
+  }
+})();
+</script>
+</body>
+</html>
