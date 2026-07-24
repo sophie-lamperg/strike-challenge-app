@@ -19,7 +19,13 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { overflow-x: hidden; }
   body { margin:0 auto; background:var(--bg); color:var(--ink); font-family:var(--font);
-    -webkit-font-smoothing:antialiased; padding:16px 14px calc(40px + env(safe-area-inset-bottom)); max-width:560px; min-height:100vh; }
+    -webkit-font-smoothing:antialiased; padding:16px 14px calc(86px + env(safe-area-inset-bottom)); max-width:560px; min-height:100vh; }
+  .navbar { position:fixed; left:0; right:0; bottom:0; display:flex; background:var(--card); border-top:1px solid var(--hair);
+    padding:7px 4px calc(7px + env(safe-area-inset-bottom)); z-index:50; max-width:560px; margin:0 auto; }
+  .navbtn { flex:1; background:none; border:none; cursor:pointer; padding:5px 2px; color:var(--soft); font-family:var(--font); }
+  .navbtn .ne { font-size:21px; line-height:1; }
+  .navbtn .nl { font-size:11px; font-weight:800; margin-top:3px; }
+  .navbtn.active { color:var(--fire); }
   .ctitle, .nm, .cmeta { overflow-wrap:anywhere; }
   @media (max-width:360px) {
     body { padding:12px 10px 32px; }
@@ -121,6 +127,8 @@ const EMOJIS = ["🔥","🏃‍♀️","🏋️","🧘","🚶","💪","📖","�
 let selectedIcon = "🔥";
 let pendingSuggestionId = null;
 let currentSuggestions = [];
+let activeTab = "challenges";
+let lastData = null;
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -153,6 +161,7 @@ const I18N = {
     metricLabelPh: "Подпись (напр. Граммы белка)", metricUnitPh: "Ед. (г, шагов…)", avgAll: "Ø все", avgYou: "Ø ты", save: "Готово", daysLabel: "Сколько дней",
     awardModalTitle: "Новая медаль!", awardReason: (d) => `${d} дней подряд`, winnerReason: (t) => `Победитель сезона «${t}»`, awardBtn: "Ура! 🎉",
     privateTag: "🔒 личный", personalTitle: "🔒 Свой личный челлендж (только ты)", personalPh: "Напр. Выпить таблетку", personalCreate: "Создать личный",
+    navCh: "Челленджи", navMed: "Медали", navCreate: "Создать", navAdmin: "Админка", navMore: "Ещё",
   },
   en: {
     hi: (n) => `Hi, ${n}! 🔥`, sub: "Who's up to what and how the streaks hold",
@@ -175,6 +184,7 @@ const I18N = {
     metricLabelPh: "Label (e.g. Protein grams)", metricUnitPh: "Unit (g, steps…)", avgAll: "Ø all", avgYou: "Ø you", save: "Done", daysLabel: "How many days",
     awardModalTitle: "New medal!", awardReason: (d) => `${d} days in a row`, winnerReason: (t) => `Season winner "${t}"`, awardBtn: "Yay! 🎉",
     privateTag: "🔒 personal", personalTitle: "🔒 Your personal challenge (just you)", personalPh: "E.g. Take a pill", personalCreate: "Create personal",
+    navCh: "Challenges", navMed: "Medals", navCreate: "Create", navAdmin: "Admin", navMore: "More",
   },
 };
 const T = I18N[pickLang()];
@@ -234,7 +244,16 @@ function compStatus(start, today, total) {
   return T.finished;
 }
 
+function navBar(isAdmin) {
+  const items = isAdmin
+    ? [{ id: "challenges", e: "🏆", l: T.navCh }, { id: "medals", e: "🏅", l: T.navMed }, { id: "create", e: "👑", l: T.navAdmin }]
+    : [{ id: "challenges", e: "🏆", l: T.navCh }, { id: "medals", e: "🏅", l: T.navMed }, { id: "create", e: "➕", l: T.navCreate }, { id: "more", e: "💬", l: T.navMore }];
+  return `<nav class="navbar">${items.map((it) => `<button class="navbtn ${activeTab === it.id ? "active" : ""}" onclick="setTab('${it.id}')"><div class="ne">${it.e}</div><div class="nl">${it.l}</div></button>`).join("")}</nav>`;
+}
+window.setTab = function (t) { activeTab = t; if (lastData) render(lastData); window.scrollTo(0, 0); };
+
 function render(d) {
+  lastData = d;
   currentSuggestions = d.suggestions || [];
   const byId = Object.fromEntries(d.users.map((u) => [u.id, u]));
   const meUser = d.users.find((u) => u.telegram_id === d.meId);
@@ -317,34 +336,36 @@ function render(d) {
     return s + `</div>`;
   };
 
-  if (comp.length) { html += `<div class="seclabel">${T.secComp}</div>`; comp.forEach((c) => (html += renderChallenge(c))); }
-  if (open.length) { html += `<div class="seclabel">${T.secOpen}</div>`; open.forEach((c) => (html += renderChallenge(c))); }
-  if (!d.challenges.length) html += `<div class="empty">${T.empty}</div>`;
-
-  if (meUser) {
-    const mine = d.parts.filter((p) => p.user_id === meUser.id);
-    const best = mine.reduce((mx, p) => Math.max(mx, p.best_streak || 0), 0);
-    const myAwards = (d.awards || []).filter((x) => x.user_id === meUser.id);
-    const codes = new Set(myAwards.map((x) => x.code));
-    const wins = myAwards.filter((x) => x.code === "winner").length;
-    const dw = pickLang() === "ru" ? "дней" : "days";
-    const tiers = [{ d: 7, e: "🔥", n: T.m7 }, { d: 14, e: "⚡", n: T.m14 }, { d: 30, e: "🏆", n: T.m30 }, { d: 50, e: "💎", n: T.m50 }, { d: 100, e: "🦾", n: T.m100 }];
-    html += `<div class="seclabel">${T.medals(best)}</div><div class="medals">`;
-    for (const t of tiers) {
-      const got = codes.has("s" + t.d);
-      html += `<div class="medal ${got ? "" : "lock"}"><div class="m" ${got ? 'style="background:var(--fire-soft)"' : ""}>${t.e}</div><small>${t.n}</small><span class="d">${t.d} ${dw}</span></div>`;
+  const isAdmin = d.meId === ADMIN_ID;
+  if (activeTab === "challenges") {
+    if (comp.length) { html += `<div class="seclabel">${T.secComp}</div>`; comp.forEach((c) => (html += renderChallenge(c))); }
+    if (open.length) { html += `<div class="seclabel">${T.secOpen}</div>`; open.forEach((c) => (html += renderChallenge(c))); }
+    if (!comp.length && !open.length) html += `<div class="empty">${T.empty}</div>`;
+  } else if (activeTab === "medals") {
+    if (meUser) {
+      const mine = d.parts.filter((p) => p.user_id === meUser.id);
+      const best = mine.reduce((mx, p) => Math.max(mx, p.best_streak || 0), 0);
+      const myAwards = (d.awards || []).filter((x) => x.user_id === meUser.id);
+      const codes = new Set(myAwards.map((x) => x.code));
+      const wins = myAwards.filter((x) => x.code === "winner").length;
+      const dw = pickLang() === "ru" ? "дней" : "days";
+      const tiers = [{ d: 7, e: "🔥", n: T.m7 }, { d: 14, e: "⚡", n: T.m14 }, { d: 30, e: "🏆", n: T.m30 }, { d: 50, e: "💎", n: T.m50 }, { d: 100, e: "🦾", n: T.m100 }];
+      html += `<div class="seclabel">${T.medals(best)}</div><div class="medals">`;
+      for (const t of tiers) {
+        const got = codes.has("s" + t.d);
+        html += `<div class="medal ${got ? "" : "lock"}"><div class="m" ${got ? 'style="background:var(--fire-soft)"' : ""}>${t.e}</div><small>${t.n}</small><span class="d">${t.d} ${dw}</span></div>`;
+      }
+      if (wins > 0) html += `<div class="medal"><div class="m" style="background:var(--amber-soft)">🥇</div><small>${T.winner}</small><span class="d">${wins > 1 ? "×" + wins : T.season}</span></div>`;
+      html += `</div>`;
     }
-    if (wins > 0) {
-      html += `<div class="medal"><div class="m" style="background:var(--amber-soft)">🥇</div><small>${T.winner}</small><span class="d">${wins > 1 ? "×" + wins : T.season}</span></div>`;
-    }
-    html += `</div>`;
+  } else if (activeTab === "create") {
+    html += personalHTML();
+    if (isAdmin) { html += pendingHTML(d.suggestions || []); html += adminPanelHTML(); }
+    else html += suggestHTML();
+  } else if (activeTab === "more") {
+    html += feedbackHTML();
   }
-
-  html += personalHTML();
-  if (d.meId !== ADMIN_ID) html += suggestHTML();
-  if (d.meId === ADMIN_ID) html += pendingHTML(d.suggestions || []);
-  if (d.meId === ADMIN_ID) html += adminPanelHTML();
-  if (d.meId !== ADMIN_ID) html += feedbackHTML();
+  html += navBar(isAdmin);
 
   document.getElementById("app").innerHTML = html;
 
