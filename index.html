@@ -139,6 +139,8 @@ const I18N = {
     err: "Ошибка", needTitle: "Впиши название", needDate: "Выбери дату старта", net: "Ошибка сети", empty: "Пока нет челленджей 🙂",
     sgTitle: "💡 Предложить челлендж", sgPh: "Название привычки или челленджа…", sgSend: "Предложить", sgSent: "Спасибо! Отправлено админу 🙌",
     pendingTitle: "📥 Заявки на челлендж", by: "от", approve: "Одобрить", reject: "Отклонить", configure: "Настроить",
+    metricTypeLabel: "Отчётность за день", metricNone: "Без отчёта", metricNumber: "Число", metricText: "Текст",
+    metricLabelPh: "Подпись (напр. Граммы белка)", metricUnitPh: "Ед. (г, шагов…)", avgAll: "Ø все", avgYou: "Ø ты", save: "Готово",
   },
   en: {
     hi: (n) => `Hi, ${n}! 🔥`, sub: "Who's up to what and how the streaks hold",
@@ -157,6 +159,8 @@ const I18N = {
     err: "Error", needTitle: "Enter a title", needDate: "Pick a start date", net: "Network error", empty: "No challenges yet 🙂",
     sgTitle: "💡 Suggest a challenge", sgPh: "Name of a habit or challenge…", sgSend: "Suggest", sgSent: "Thanks! Sent to the admin 🙌",
     pendingTitle: "📥 Challenge requests", by: "by", approve: "Approve", reject: "Reject", configure: "Configure",
+    metricTypeLabel: "Daily report", metricNone: "None", metricNumber: "Number", metricText: "Text",
+    metricLabelPh: "Label (e.g. Protein grams)", metricUnitPh: "Unit (g, steps…)", avgAll: "Ø all", avgYou: "Ø you", save: "Done",
   },
 };
 const T = I18N[pickLang()];
@@ -173,7 +177,10 @@ function demoData() {
   return {
     demo: true, today, meId: 437072815,
     users: [{ id: 1, telegram_id: 437072815, nickname: "arcveid" }, { id: 2, telegram_id: 111, nickname: "ToN" }, { id: 3, telegram_id: 222, nickname: "masha.k" }],
-    challenges: [{ id: 10, title: "Марафон отжиманий", icon: "🏆", kind: "competitive", start_date: today }, { id: 11, title: "Зарядка по утрам", icon: "🏃‍♀️", kind: "open" }],
+    challenges: [
+      { id: 10, title: "Марафон отжиманий", icon: "🏆", kind: "competitive", start_date: today, metric_type: "number", metric_label: "Отжимания", metric_unit: "раз" },
+      { id: 11, title: "Белок", icon: "🥗", kind: "open", metric_type: "number", metric_label: "Граммы белка", metric_unit: "г" },
+    ],
     parts: [
       { user_id: 1, challenge_id: 10, total_days: 5, current_streak: 5, best_streak: 5 },
       { user_id: 2, challenge_id: 10, total_days: 5, current_streak: 5, best_streak: 8 },
@@ -181,20 +188,25 @@ function demoData() {
     ],
     marks: [{ user_id: 2, challenge_id: 10, mark_date: today, status: "closed" }],
     suggestions: [{ id: 99, title: "Медитация 10 минут", users: { nickname: "ToN" } }],
+    values: [
+      { user_id: 1, challenge_id: 11, value_num: 120 }, { user_id: 2, challenge_id: 11, value_num: 90 },
+      { user_id: 1, challenge_id: 10, value_num: 40 }, { user_id: 2, challenge_id: 10, value_num: 55 },
+    ],
   };
 }
 async function realData() {
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const today = todayStr();
-  const [u, c, p, m, s] = await Promise.all([
+  const [u, c, p, m, s, v] = await Promise.all([
     sb.from("users").select("id, telegram_id, nickname"),
-    sb.from("challenges").select("id, title, icon, kind, start_date, status").eq("status", "active"),
+    sb.from("challenges").select("id, title, icon, kind, start_date, status, metric_type, metric_label, metric_unit").eq("status", "active"),
     sb.from("participations").select("user_id, challenge_id, total_days, current_streak, best_streak"),
     sb.from("day_marks").select("user_id, challenge_id, status").eq("mark_date", today),
     sb.from("suggestions").select("id, title, users(nickname)").eq("status", "pending").order("created_at"),
+    sb.from("day_marks").select("user_id, challenge_id, value_num").eq("status", "closed").not("value_num", "is", null),
   ]);
   if (u.error || c.error || p.error || m.error) throw (u.error || c.error || p.error || m.error);
-  return { demo: false, today, users: u.data, challenges: c.data, parts: p.data, marks: m.data, suggestions: s.data || [], meId };
+  return { demo: false, today, users: u.data, challenges: c.data, parts: p.data, marks: m.data, suggestions: s.data || [], values: v.data || [], meId };
 }
 
 function compStatus(start, today) {
@@ -212,6 +224,13 @@ function render(d) {
   const meUser = d.users.find((u) => u.telegram_id === d.meId);
   const key = (uid, cid) => `${uid}:${cid}`;
   const markMap = {}; d.marks.forEach((x) => (markMap[key(x.user_id, x.challenge_id)] = x.status));
+  const valByCh = {};
+  (d.values || []).forEach((x) => {
+    (valByCh[x.challenge_id] ??= { all: [], byUser: {} });
+    valByCh[x.challenge_id].all.push(Number(x.value_num));
+    (valByCh[x.challenge_id].byUser[x.user_id] ??= []).push(Number(x.value_num));
+  });
+  const avg = (arr) => (arr && arr.length ? Math.round((arr.reduce((s, x) => s + x, 0) / arr.length) * 10) / 10 : null);
   let html = "";
   if (d.demo) html += `<div class="demo">${T.demo}</div>`;
   html += `<div class="hi">${T.hi(meUser?.nickname || (pickLang() === "ru" ? "друг" : "friend"))}</div><div class="sub">${T.sub}</div>`;
@@ -244,15 +263,36 @@ function render(d) {
     } else {
       s += `<div class="cmeta" style="margin-top:10px">${T.noOne}</div>`;
     }
+    // статистика по числовой метрике (видно всем)
+    if (c.metric_type === "number") {
+      const st = valByCh[c.id];
+      const all = avg(st?.all);
+      if (all != null) {
+        const unit = c.metric_unit ? " " + c.metric_unit : "";
+        let line = `${T.avgAll}: ${all}${unit}`;
+        if (meUser) { const my = avg(st?.byUser?.[meUser.id]); if (my != null) line += ` · ${T.avgYou}: ${my}${unit}`; }
+        s += `<div class="cmeta" style="margin-top:8px">📈 ${line}</div>`;
+      }
+    }
     // действия текущего пользователя
     if (meUser) {
       const mine = rows.find((p) => p.user_id === meUser.id);
       if (!mine) {
         s += `<button class="actbtn join" onclick="doAction('join',${c.id},this)">${T.join}</button>`;
       } else if (!markMap[key(meUser.id, c.id)]) {
-        s += `<div class="actrow">
-          <button class="actbtn close" onclick="doAction('close',${c.id},this)">${T.close}</button>
-          <button class="actbtn skip" onclick="doAction('skip',${c.id},this)">${T.skip}</button></div>`;
+        if (c.metric_type === "number" || c.metric_type === "text") {
+          const ph = (c.metric_label || "") + (c.metric_type === "number" && c.metric_unit ? ", " + c.metric_unit : "");
+          const inp = c.metric_type === "number"
+            ? `<input id="mv-${c.id}" class="ainput" type="number" inputmode="decimal" placeholder="${ph}" style="margin-bottom:8px" />`
+            : `<input id="mv-${c.id}" class="ainput" type="text" placeholder="${ph || "…"}" style="margin-bottom:8px" />`;
+          s += inp + `<div class="actrow">
+            <button class="actbtn close" onclick="doCloseWithValue(${c.id},'${c.metric_type}',this)">${T.close}</button>
+            <button class="actbtn skip" onclick="doAction('skip',${c.id},this)">${T.skip}</button></div>`;
+        } else {
+          s += `<div class="actrow">
+            <button class="actbtn close" onclick="doAction('close',${c.id},this)">${T.close}</button>
+            <button class="actbtn skip" onclick="doAction('skip',${c.id},this)">${T.skip}</button></div>`;
+        }
       }
     }
     return s + `</div>`;
@@ -316,19 +356,36 @@ function adminPanelHTML() {
       <label class="achip"><input type="radio" name="ac-kind" value="open" checked onchange="toggleKind()"> ${T.kindOpen}</label>
       <label class="achip"><input type="radio" name="ac-kind" value="competitive" onchange="toggleKind()"> ${T.kindComp}</label></div>
     <div id="ac-date-row" style="display:none"><label class="alabel">${T.startDate}</label><input id="ac-date" type="date" class="ainput" /></div>
+    <label class="alabel">${T.metricTypeLabel}</label>
+    <select id="ac-metric" class="ainput" onchange="toggleMetric()">
+      <option value="none">${T.metricNone}</option>
+      <option value="number">${T.metricNumber}</option>
+      <option value="text">${T.metricText}</option>
+    </select>
+    <div id="ac-metric-fields" style="display:none">
+      <input id="ac-mlabel" class="ainput" placeholder="${T.metricLabelPh}" />
+      <input id="ac-munit" class="ainput" placeholder="${T.metricUnitPh}" />
+    </div>
     <button id="ac-submit" class="abtn" onclick="createChallengeUI()">${T.create}</button>
     <div id="ac-msg" class="amsg"></div></div>`;
 }
 
 // ---- действия (через Edge Function, с подписью Telegram) ----
-window.doAction = async function (action, challengeId, btn) {
+window.doAction = async function (action, challengeId, btn, valueNum, valueText) {
   if (btn) btn.disabled = true;
   try {
-    const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action, challengeId }) });
+    const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action, challengeId, valueNum, valueText }) });
     const d = await res.json();
     if (d.ok) { tg?.HapticFeedback?.impactOccurred?.("light"); await loadAndRender(); }
     else { notify(T.err + ": " + (d.error || "")); if (btn) btn.disabled = false; }
   } catch (e) { notify(T.net); if (btn) btn.disabled = false; }
+};
+window.doCloseWithValue = function (cid, mtype, btn) {
+  const el = document.getElementById("mv-" + cid);
+  let vn = null, vt = null;
+  if (mtype === "number") vn = el && el.value !== "" ? el.value : null;
+  else if (mtype === "text") vt = el && el.value.trim() ? el.value.trim() : null;
+  window.doAction("close", cid, btn, vn, vt);
 };
 window.sendFeedback = async function () {
   const text = document.getElementById("fb-text").value.trim();
@@ -377,16 +434,24 @@ window.editSuggestion = function (id) {
 window.toggleEmoji = function () { const g = document.getElementById("ac-emoji-grid"); g.style.display = g.style.display === "none" ? "flex" : "none"; };
 window.pickIcon = function (e, el) { selectedIcon = e; document.querySelectorAll(".emoji-opt").forEach((x) => x.classList.remove("sel")); el.classList.add("sel"); document.getElementById("ac-icon-display").textContent = e; document.getElementById("ac-emoji-grid").style.display = "none"; };
 window.toggleKind = function () { const comp = document.querySelector("input[name=ac-kind]:checked").value === "competitive"; document.getElementById("ac-date-row").style.display = comp ? "block" : "none"; };
+window.toggleMetric = function () {
+  const v = document.getElementById("ac-metric").value;
+  document.getElementById("ac-metric-fields").style.display = v === "none" ? "none" : "block";
+  document.getElementById("ac-munit").style.display = v === "number" ? "block" : "none";
+};
 window.createChallengeUI = async function () {
   const title = document.getElementById("ac-title").value.trim();
   const kind = document.querySelector("input[name=ac-kind]:checked").value;
   const start_date = document.getElementById("ac-date").value;
+  const metric_type = document.getElementById("ac-metric").value;
+  const metric_label = document.getElementById("ac-mlabel")?.value.trim() || null;
+  const metric_unit = document.getElementById("ac-munit")?.value.trim() || null;
   const msg = document.getElementById("ac-msg");
   if (!title) { msg.style.color = "var(--fire)"; msg.textContent = T.needTitle; return; }
   if (kind === "competitive" && !start_date) { msg.style.color = "var(--fire)"; msg.textContent = T.needDate; return; }
   const btn = document.getElementById("ac-submit"); btn.disabled = true; btn.textContent = T.creating; msg.textContent = "";
   try {
-    const res = await fetch(FUNCTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", title, icon: selectedIcon, kind, start_date: kind === "competitive" ? start_date : null, suggestionId: pendingSuggestionId }) });
+    const res = await fetch(FUNCTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", title, icon: selectedIcon, kind, start_date: kind === "competitive" ? start_date : null, suggestionId: pendingSuggestionId, metric_type, metric_label, metric_unit }) });
     const d = await res.json();
     if (d.ok) { selectedIcon = "🔥"; pendingSuggestionId = null; tg?.HapticFeedback?.notificationOccurred?.("success"); await loadAndRender(); }
     else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (d.error || ""); btn.disabled = false; btn.textContent = T.create; }
