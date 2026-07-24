@@ -131,7 +131,7 @@ const I18N = {
     done: `🏆 ${TARGET_DAYS}/${TARGET_DAYS} — пройден!`,
     join: "＋ Вступить", close: "✅ Закрыть день", skip: "🙈 Пропустить",
     startIn: (n) => `⏳ старт через ${n} дн.`, running: (d) => `🟢 идёт · день ${d}/${TARGET_DAYS}`, finished: "🏁 завершён",
-    medals: (b) => `🏅 Твои медали · лучший стрик ${b} дн.`, m7: "Разгон", m14: "В ритме", m30: "Железо",
+    medals: (b) => `🏅 Твои медали · лучший стрик ${b} дн.`, m7: "Разгон", m14: "В ритме", m30: "Железо", m50: "Алмаз", m100: "Легенда", winner: "Победитель", season: "сезон",
     admin: "👑 Админка — создать челлендж", acTitle: "Название (напр. Зарядка по утрам)",
     icon: "Иконка", pick: "выбрать ▾", kindOpen: "🔁 Обычный", kindComp: "🏆 Соревнов.",
     startDate: "Дата старта", create: "Создать", creating: "Создаю…", created: "Создано ✅",
@@ -151,7 +151,7 @@ const I18N = {
     done: `🏆 ${TARGET_DAYS}/${TARGET_DAYS} — done!`,
     join: "＋ Join", close: "✅ Close today", skip: "🙈 Skip",
     startIn: (n) => `⏳ starts in ${n} d.`, running: (d) => `🟢 live · day ${d}/${TARGET_DAYS}`, finished: "🏁 finished",
-    medals: (b) => `🏅 Your medals · best streak ${b} d.`, m7: "Kickoff", m14: "In rhythm", m30: "Iron",
+    medals: (b) => `🏅 Your medals · best streak ${b} d.`, m7: "Kickoff", m14: "In rhythm", m30: "Iron", m50: "Diamond", m100: "Legend", winner: "Winner", season: "season",
     admin: "👑 Admin — create a challenge", acTitle: "Title (e.g. Morning workout)",
     icon: "Icon", pick: "choose ▾", kindOpen: "🔁 Regular", kindComp: "🏆 Competitive",
     startDate: "Start date", create: "Create", creating: "Creating…", created: "Created ✅",
@@ -192,21 +192,23 @@ function demoData() {
       { user_id: 1, challenge_id: 11, value_num: 120 }, { user_id: 2, challenge_id: 11, value_num: 90 },
       { user_id: 1, challenge_id: 10, value_num: 40 }, { user_id: 2, challenge_id: 10, value_num: 55 },
     ],
+    awards: [{ user_id: 1, code: "s7", challenge_id: 0 }, { user_id: 1, code: "winner", challenge_id: 10 }],
   };
 }
 async function realData() {
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const today = todayStr();
-  const [u, c, p, m, s, v] = await Promise.all([
+  const [u, c, p, m, s, v, a] = await Promise.all([
     sb.from("users").select("id, telegram_id, nickname"),
     sb.from("challenges").select("id, title, icon, kind, start_date, status, metric_type, metric_label, metric_unit").eq("status", "active"),
     sb.from("participations").select("user_id, challenge_id, total_days, current_streak, best_streak"),
     sb.from("day_marks").select("user_id, challenge_id, status").eq("mark_date", today),
     sb.from("suggestions").select("id, title, users(nickname)").eq("status", "pending").order("created_at"),
     sb.from("day_marks").select("user_id, challenge_id, value_num").eq("status", "closed").not("value_num", "is", null),
+    sb.from("awards").select("user_id, code, challenge_id"),
   ]);
   if (u.error || c.error || p.error || m.error) throw (u.error || c.error || p.error || m.error);
-  return { demo: false, today, users: u.data, challenges: c.data, parts: p.data, marks: m.data, suggestions: s.data || [], values: v.data || [], meId };
+  return { demo: false, today, users: u.data, challenges: c.data, parts: p.data, marks: m.data, suggestions: s.data || [], values: v.data || [], awards: a.data || [], meId };
 }
 
 function compStatus(start, today) {
@@ -305,11 +307,18 @@ function render(d) {
   if (meUser) {
     const mine = d.parts.filter((p) => p.user_id === meUser.id);
     const best = mine.reduce((mx, p) => Math.max(mx, p.best_streak || 0), 0);
-    const tiers = [{ d: 7, e: "🔥", n: T.m7 }, { d: 14, e: "⚡", n: T.m14 }, { d: 30, e: "🏆", n: T.m30 }];
+    const myAwards = (d.awards || []).filter((x) => x.user_id === meUser.id);
+    const codes = new Set(myAwards.map((x) => x.code));
+    const wins = myAwards.filter((x) => x.code === "winner").length;
+    const dw = pickLang() === "ru" ? "дней" : "days";
+    const tiers = [{ d: 7, e: "🔥", n: T.m7 }, { d: 14, e: "⚡", n: T.m14 }, { d: 30, e: "🏆", n: T.m30 }, { d: 50, e: "💎", n: T.m50 }, { d: 100, e: "🦾", n: T.m100 }];
     html += `<div class="seclabel">${T.medals(best)}</div><div class="medals">`;
     for (const t of tiers) {
-      const got = best >= t.d;
-      html += `<div class="medal ${got ? "" : "lock"}"><div class="m" ${got ? 'style="background:var(--fire-soft)"' : ""}>${t.e}</div><small>${t.n}</small><span class="d">${t.d} ${pickLang() === "ru" ? "дней" : "days"}</span></div>`;
+      const got = codes.has("s" + t.d);
+      html += `<div class="medal ${got ? "" : "lock"}"><div class="m" ${got ? 'style="background:var(--fire-soft)"' : ""}>${t.e}</div><small>${t.n}</small><span class="d">${t.d} ${dw}</span></div>`;
+    }
+    if (wins > 0) {
+      html += `<div class="medal"><div class="m" style="background:var(--amber-soft)">🥇</div><small>${T.winner}</small><span class="d">${wins > 1 ? "×" + wins : T.season}</span></div>`;
     }
     html += `</div>`;
   }
