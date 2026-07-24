@@ -109,6 +109,8 @@ const FUNCTION_URL = SUPABASE_URL + "/functions/v1/admin-create-challenge";
 const APP_ACTION_URL = SUPABASE_URL + "/functions/v1/app-action";
 const EMOJIS = ["🔥","🏃‍♀️","🏋️","🧘","🚶","💪","📖","✍️","🧠","💧","🥗","🍎","🚭","🍷","😴","🌅","🧴","🪥","🧹","💰","🎨","🎸","📸","🌱","🐶","☀️","🧊","📵","⏰","✅"];
 let selectedIcon = "🔥";
+let pendingSuggestionId = null;
+let currentSuggestions = [];
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -136,7 +138,7 @@ const I18N = {
     fbTitle: "💬 Отзыв · идея · баг", fbPh: "Что улучшить или что сломалось…", fbSend: "Отправить", fbSent: "Спасибо! Отправлено 🙏",
     err: "Ошибка", needTitle: "Впиши название", needDate: "Выбери дату старта", net: "Ошибка сети", empty: "Пока нет челленджей 🙂",
     sgTitle: "💡 Предложить челлендж", sgPh: "Название привычки или челленджа…", sgSend: "Предложить", sgSent: "Спасибо! Отправлено админу 🙌",
-    pendingTitle: "📥 Заявки на челлендж", by: "от", approve: "Одобрить", reject: "Отклонить",
+    pendingTitle: "📥 Заявки на челлендж", by: "от", approve: "Одобрить", reject: "Отклонить", configure: "Настроить",
   },
   en: {
     hi: (n) => `Hi, ${n}! 🔥`, sub: "Who's up to what and how the streaks hold",
@@ -154,7 +156,7 @@ const I18N = {
     fbTitle: "💬 Feedback · idea · bug", fbPh: "What to improve or what's broken…", fbSend: "Send", fbSent: "Thanks! Sent 🙏",
     err: "Error", needTitle: "Enter a title", needDate: "Pick a start date", net: "Network error", empty: "No challenges yet 🙂",
     sgTitle: "💡 Suggest a challenge", sgPh: "Name of a habit or challenge…", sgSend: "Suggest", sgSent: "Thanks! Sent to the admin 🙌",
-    pendingTitle: "📥 Challenge requests", by: "by", approve: "Approve", reject: "Reject",
+    pendingTitle: "📥 Challenge requests", by: "by", approve: "Approve", reject: "Reject", configure: "Configure",
   },
 };
 const T = I18N[pickLang()];
@@ -205,6 +207,7 @@ function compStatus(start, today) {
 }
 
 function render(d) {
+  currentSuggestions = d.suggestions || [];
   const byId = Object.fromEntries(d.users.map((u) => [u.id, u]));
   const meUser = d.users.find((u) => u.telegram_id === d.meId);
   const key = (uid, cid) => `${uid}:${cid}`;
@@ -290,7 +293,7 @@ function pendingHTML(list) {
   let s = `<div class="seclabel">${T.pendingTitle}</div><div class="card">`;
   for (const sg of list) {
     s += `<div class="sgitem"><div class="t">${sg.title}<small>${T.by} ${sg.users?.nickname || "?"}</small></div>
-      <button class="sgbtn ok" onclick="doSuggestAction('suggest_approve',${sg.id},this)">${T.approve}</button>
+      <button class="sgbtn ok" onclick="editSuggestion(${sg.id})">${T.configure}</button>
       <button class="sgbtn no" onclick="doSuggestAction('suggest_reject',${sg.id},this)">${T.reject}</button></div>`;
   }
   return s + `</div>`;
@@ -305,6 +308,7 @@ function feedbackHTML() {
 function adminPanelHTML() {
   return `<div class="seclabel">${T.admin}</div><div class="card">
     <input id="ac-title" class="ainput" placeholder="${T.acTitle}" />
+    <div id="ac-fromsg" class="amsg" style="display:none;color:var(--grape);margin:-4px 0 9px"></div>
     <label class="alabel">${T.icon}</label>
     <div class="emoji-current" onclick="toggleEmoji()"><span id="ac-icon-display">🔥</span><span class="cav">${T.pick}</span></div>
     <div id="ac-emoji-grid" class="emoji-grid" style="display:none">${EMOJIS.map((e) => `<div class="emoji-opt${e === "🔥" ? " sel" : ""}" onclick="pickIcon('${e}',this)">${e}</div>`).join("")}</div>
@@ -360,6 +364,16 @@ window.doSuggestAction = async function (action, id, btn) {
     else { notify(T.err + ": " + (d.error || "")); if (btn) btn.disabled = false; }
   } catch (e) { notify(T.net); if (btn) btn.disabled = false; }
 };
+window.editSuggestion = function (id) {
+  const sg = currentSuggestions.find((x) => x.id === id);
+  if (!sg) return;
+  pendingSuggestionId = id;
+  const ti = document.getElementById("ac-title");
+  if (ti) ti.value = sg.title;
+  const note = document.getElementById("ac-fromsg");
+  if (note) { note.textContent = `📥 ${T.by} ${sg.users?.nickname || "?"}`; note.style.display = "block"; }
+  ti?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+};
 window.toggleEmoji = function () { const g = document.getElementById("ac-emoji-grid"); g.style.display = g.style.display === "none" ? "flex" : "none"; };
 window.pickIcon = function (e, el) { selectedIcon = e; document.querySelectorAll(".emoji-opt").forEach((x) => x.classList.remove("sel")); el.classList.add("sel"); document.getElementById("ac-icon-display").textContent = e; document.getElementById("ac-emoji-grid").style.display = "none"; };
 window.toggleKind = function () { const comp = document.querySelector("input[name=ac-kind]:checked").value === "competitive"; document.getElementById("ac-date-row").style.display = comp ? "block" : "none"; };
@@ -372,9 +386,9 @@ window.createChallengeUI = async function () {
   if (kind === "competitive" && !start_date) { msg.style.color = "var(--fire)"; msg.textContent = T.needDate; return; }
   const btn = document.getElementById("ac-submit"); btn.disabled = true; btn.textContent = T.creating; msg.textContent = "";
   try {
-    const res = await fetch(FUNCTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", title, icon: selectedIcon, kind, start_date: kind === "competitive" ? start_date : null }) });
+    const res = await fetch(FUNCTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", title, icon: selectedIcon, kind, start_date: kind === "competitive" ? start_date : null, suggestionId: pendingSuggestionId }) });
     const d = await res.json();
-    if (d.ok) { selectedIcon = "🔥"; tg?.HapticFeedback?.notificationOccurred?.("success"); await loadAndRender(); }
+    if (d.ok) { selectedIcon = "🔥"; pendingSuggestionId = null; tg?.HapticFeedback?.notificationOccurred?.("success"); await loadAndRender(); }
     else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (d.error || ""); btn.disabled = false; btn.textContent = T.create; }
   } catch (e) { msg.style.color = "var(--fire)"; msg.textContent = T.net; btn.disabled = false; btn.textContent = T.create; }
 };
