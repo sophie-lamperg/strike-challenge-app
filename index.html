@@ -152,6 +152,7 @@ const I18N = {
     metricTypeLabel: "Отчётность за день", metricNone: "Без отчёта", metricNumber: "Число", metricText: "Текст",
     metricLabelPh: "Подпись (напр. Граммы белка)", metricUnitPh: "Ед. (г, шагов…)", avgAll: "Ø все", avgYou: "Ø ты", save: "Готово", daysLabel: "Сколько дней",
     awardModalTitle: "Новая медаль!", awardReason: (d) => `${d} дней подряд`, winnerReason: (t) => `Победитель сезона «${t}»`, awardBtn: "Ура! 🎉",
+    privateTag: "🔒 личный", personalTitle: "🔒 Свой личный челлендж (только ты)", personalPh: "Напр. Выпить таблетку", personalCreate: "Создать личный",
   },
   en: {
     hi: (n) => `Hi, ${n}! 🔥`, sub: "Who's up to what and how the streaks hold",
@@ -173,6 +174,7 @@ const I18N = {
     metricTypeLabel: "Daily report", metricNone: "None", metricNumber: "Number", metricText: "Text",
     metricLabelPh: "Label (e.g. Protein grams)", metricUnitPh: "Unit (g, steps…)", avgAll: "Ø all", avgYou: "Ø you", save: "Done", daysLabel: "How many days",
     awardModalTitle: "New medal!", awardReason: (d) => `${d} days in a row`, winnerReason: (t) => `Season winner "${t}"`, awardBtn: "Yay! 🎉",
+    privateTag: "🔒 personal", personalTitle: "🔒 Your personal challenge (just you)", personalPh: "E.g. Take a pill", personalCreate: "Create personal",
   },
 };
 const T = I18N[pickLang()];
@@ -249,8 +251,9 @@ function render(d) {
   if (d.demo) html += `<div class="demo">${T.demo}</div>`;
   html += `<div class="hi">${T.hi(meUser?.nickname || (pickLang() === "ru" ? "друг" : "friend"))}</div><div class="sub">${T.sub}</div>`;
 
-  const comp = d.challenges.filter((c) => c.kind === "competitive");
-  const open = d.challenges.filter((c) => c.kind !== "competitive");
+  const visibleCh = d.challenges.filter((c) => !c.is_private || (meUser && c.created_by === meUser.id));
+  const comp = visibleCh.filter((c) => c.kind === "competitive");
+  const open = visibleCh.filter((c) => c.kind !== "competitive");
 
   const renderChallenge = (c) => {
     const N = c.target_days || 30;
@@ -259,7 +262,7 @@ function render(d) {
     let s = `<div class="card"><div class="chead">
       <div class="ico" style="background:${isComp ? "var(--amber-soft)" : "var(--fire-soft)"}">${c.icon || "🔥"}</div>
       <div><div class="ctitle">${c.title}</div><div class="cmeta">${isComp ? T.compPrize(N) : T.openTag(N)}</div></div>
-      <div class="badge ${isComp ? "comp" : "open"}">${isComp ? compStatus(c.start_date, d.today, N) : T.regular}</div></div>`;
+      <div class="badge ${isComp ? "comp" : "open"}">${isComp ? compStatus(c.start_date, d.today, N) : (c.is_private ? T.privateTag : T.regular)}</div></div>`;
     if (rows.length) {
       s += `<div class="lb">`;
       for (const p of rows) {
@@ -337,6 +340,7 @@ function render(d) {
     html += `</div>`;
   }
 
+  html += personalHTML();
   if (d.meId !== ADMIN_ID) html += suggestHTML();
   if (d.meId === ADMIN_ID) html += pendingHTML(d.suggestions || []);
   if (d.meId === ADMIN_ID) html += adminPanelHTML();
@@ -400,6 +404,43 @@ function suggestHTML() {
     <button id="sg-send" class="abtn" onclick="doSuggest()">${T.sgSend}</button>
     <div id="sg-msg" class="amsg"></div></div>`;
 }
+function personalHTML() {
+  return `<div class="seclabel">${T.personalTitle}</div><div class="card">
+    <input id="pc-title" class="ainput" placeholder="${T.personalPh}" />
+    <label class="alabel">${T.daysLabel}</label>
+    <input id="pc-days" class="ainput" type="number" inputmode="numeric" value="30" />
+    <label class="alabel">${T.metricTypeLabel}</label>
+    <select id="pc-metric" class="ainput" onchange="togglePcMetric()">
+      <option value="none">${T.metricNone}</option><option value="number">${T.metricNumber}</option><option value="text">${T.metricText}</option>
+    </select>
+    <div id="pc-metric-fields" style="display:none">
+      <input id="pc-mlabel" class="ainput" placeholder="${T.metricLabelPh}" />
+      <input id="pc-munit" class="ainput" placeholder="${T.metricUnitPh}" />
+    </div>
+    <button id="pc-submit" class="abtn" onclick="createPrivate()">${T.personalCreate}</button>
+    <div id="pc-msg" class="amsg"></div></div>`;
+}
+window.togglePcMetric = function () {
+  const v = document.getElementById("pc-metric").value;
+  document.getElementById("pc-metric-fields").style.display = v === "none" ? "none" : "block";
+  document.getElementById("pc-munit").style.display = v === "number" ? "block" : "none";
+};
+window.createPrivate = async function () {
+  const title = document.getElementById("pc-title").value.trim();
+  const msg = document.getElementById("pc-msg");
+  if (!title) { msg.style.color = "var(--fire)"; msg.textContent = T.needTitle; return; }
+  const target_days = Number(document.getElementById("pc-days").value) || 30;
+  const metric_type = document.getElementById("pc-metric").value;
+  const metric_label = document.getElementById("pc-mlabel")?.value.trim() || null;
+  const metric_unit = document.getElementById("pc-munit")?.value.trim() || null;
+  const btn = document.getElementById("pc-submit"); btn.disabled = true; btn.textContent = T.creating;
+  try {
+    const res = await fetch(APP_ACTION_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: tg?.initData || "", action: "create_private", title, target_days, metric_type, metric_label, metric_unit }) });
+    const dd = await res.json();
+    if (dd.ok) { tg?.HapticFeedback?.notificationOccurred?.("success"); await loadAndRender(); }
+    else { msg.style.color = "var(--fire)"; msg.textContent = T.err + ": " + (dd.error || ""); btn.disabled = false; btn.textContent = T.personalCreate; }
+  } catch (e) { msg.style.color = "var(--fire)"; msg.textContent = T.net; btn.disabled = false; btn.textContent = T.personalCreate; }
+};
 function pendingHTML(list) {
   if (!list.length) return "";
   let s = `<div class="seclabel">${T.pendingTitle}</div><div class="card">`;
